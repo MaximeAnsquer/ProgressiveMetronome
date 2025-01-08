@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Progressive Metronome</title>
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            font-family: Arial, sans-serif;
+            text-align: center;
+            padding: 20px;
+        }
+        main {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            flex: 1;
+            padding: 20px;
+        }
+        section {
+            width: 100%;
+            max-width: 800px;
+        }
+        .controls {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        label {
+            margin-bottom: 10px;
+        }
+        button, input {
+            padding: 8px;
+            margin-top: 5px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+        .graph-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            width: 100%;
+        }
+        .tempo-display {
+            text-align: center;
+            font-size: 2em;
+            margin-top: 20px;
+        }
+        canvas {
+            width: 100%;
+            max-width: 800px;
+            height: 300px;
+            border: 1px solid #ccc;
+        }
+        @media (max-width: 600px) {
+            .controls {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+<main>
+    <h2>Progressive Metronome</h2>
+    <section>
+        <div class="controls">
+            <label>
+                Initial Tempo (BPM):
+                <input type="number" id="initialTempo" value="60" min="30" max="300">
+            </label>
+            <label>
+                Final Tempo (BPM):
+                <input type="number" id="finalTempo" value="120" min="30" max="300">
+            </label>
+            <label>
+                Duration (minutes):
+                <input type="number" id="duration" value="0.5" min="0.1" max="10" step="0.1">
+            </label>
+            <label>
+                Volume:
+                <input type="range" id="volumeControl" min="0" max="1" step="0.01" value="0.1">
+            </label>
+            <button id="startButton">Start Metronome</button>
+            <button id="stopButton" disabled>Stop Metronome</button>
+        </div>
+    </section>
+    <div class="graph-container">
+        <div class="tempo-display" id="tempoDisplay">Current Tempo: -- BPM</div>
+        <label>Tempo Graph:</label>
+        <canvas id="tempoGraph" width="600" height="200"></canvas>
+    </div>
+</main>
+<script>
+    // metronomeInterval ID for clearing the interval
+    let metronomeInterval;
+    // AudioContext for audio playback
+    let audioContext;
+    // Time of the next beat
+    let nextBeatTime;
+    // 2D context for drawing the graph
+    let graphContext;
+    // Start time for the graph
+    let graphStartTime;
+    // Initial volume
+    let volume = 0.1;
+
+    // Event listener for volume control
+    document.getElementById('volumeControl').addEventListener('input', (event) => {
+        volume = parseFloat(event.target.value);
+    });
+
+    // Event listener for start button
+    document.getElementById('startButton').addEventListener('click', () => {
+        const initialTempo = parseFloat(document.getElementById('initialTempo').value);
+        const finalTempo = parseFloat(document.getElementById('finalTempo').value);
+        const duration = parseFloat(document.getElementById('duration').value) * 60; // Convert minutes to seconds
+
+        if (initialTempo <= 0 || finalTempo <= 0 || duration <= 0) {
+            alert('Please enter positive values for tempo and duration.');
+            return;
+        }
+
+        startMetronome(initialTempo, finalTempo, duration);
+    });
+
+    // Event listener for stop button
+    document.getElementById('stopButton').addEventListener('click', stopMetronome);
+
+    // Starts the metronome with the given parameters
+    function startMetronome(initialTempo, finalTempo, duration) {
+        stopMetronome();
+
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        nextBeatTime = audioContext.currentTime;
+
+        const tempoDisplay = document.getElementById('tempoDisplay');
+
+        const canvas = document.getElementById('tempoGraph');
+        graphContext = canvas.getContext('2d');
+        graphContext.clearRect(0, 0, canvas.width, canvas.height);
+        graphContext.beginPath();
+        graphContext.moveTo(0, canvas.height);
+        graphStartTime = audioContext.currentTime;
+
+        const startTime = audioContext.currentTime;
+
+        metronomeInterval = setInterval(() => {
+            const currentTime = audioContext.currentTime;
+            const elapsedTime = currentTime - startTime;
+
+            if (elapsedTime >= duration) {
+                stopMetronome();
+                return;
+            }
+
+            if (currentTime >= nextBeatTime) {
+                // Play the click sound
+                if (!audioContext) return;
+
+                const buffer = audioContext.createBuffer(1, audioContext.sampleRate * 0.1, audioContext.sampleRate);
+                const channelData = buffer.getChannelData(0);
+
+                // Create a sound resembling a woodblock hit
+                for (let i = 0; i < channelData.length; i++) {
+                    const t = i / audioContext.sampleRate;
+                    channelData[i] = Math.exp(-30 * t) * Math.sin(2 * Math.PI * 2000 * t);
+                }
+
+                const source = audioContext.createBufferSource();
+                source.buffer = buffer;
+
+                const gainNode = audioContext.createGain();
+                gainNode.gain.value = volume;
+
+                source.connect(gainNode);
+                gainNode.connect(audioContext.destination);
+
+                source.start(nextBeatTime);
+
+                // Non-linear tempo increase using an ease-out function
+                const progress = elapsedTime / duration;
+                const easedProgress = 1 - Math.pow(1 - progress, 2); // Quadratic ease-out
+                const currentTempo = initialTempo + (finalTempo - initialTempo) * easedProgress;
+                const interval = 60 / currentTempo;
+
+                nextBeatTime += interval;
+                tempoDisplay.textContent = `Current Tempo: ${currentTempo.toFixed(2)} BPM`;
+
+                // Update the graph
+                const graphElapsedTime = currentTime - graphStartTime;
+                const x = (graphElapsedTime / duration) * canvas.width;
+                const y = canvas.height - ((currentTempo - initialTempo) / (finalTempo - initialTempo)) * canvas.height;
+                graphContext.lineTo(x, y);
+                graphContext.stroke();
+            }
+        }, 10);
+
+        document.getElementById('startButton').disabled = true;
+        document.getElementById('stopButton').disabled = false;
+    }
+
+    // Stops the metronome
+    function stopMetronome() {
+        if (metronomeInterval) {
+            clearInterval(metronomeInterval);
+            metronomeInterval = null;
+        }
+        if (audioContext) {
+            audioContext.close();
+            audioContext = null;
+        }
+
+        document.getElementById('startButton').disabled = false;
+        document.getElementById('stopButton').disabled = true;
+        document.getElementById('tempoDisplay').textContent = 'Current Tempo: -- BPM';
+    }
+</script>
+</body>
+</html>
