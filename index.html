@@ -41,6 +41,11 @@
             border: 1px solid #ccc;
             border-radius: 4px;
         }
+        .duration-buttons button {
+            margin: 5px;
+            padding: 10px 20px;
+            cursor: pointer;
+        }
         .graph-container {
             display: flex;
             flex-direction: column;
@@ -80,7 +85,13 @@
             </label>
             <label>
                 Duration (minutes):
-                <input type="number" id="duration" value="0.5" min="0.1" max="10" step="0.1">
+                <div class="duration-buttons" id="durationButtons">
+                    <button data-duration="1">1 Minute</button>
+                    <button data-duration="2">2 Minutes</button>
+                    <button data-duration="3">3 Minutes</button>
+                    <button data-duration="5">5 Minutes</button>
+                    <button data-duration="10">10 Minutes</button>
+                </div>
             </label>
             <label>
                 Volume:
@@ -97,42 +108,40 @@
     </div>
 </main>
 <script>
-    // metronomeInterval ID for clearing the interval
     let metronomeInterval;
-    // AudioContext for audio playback
     let audioContext;
-    // Time of the next beat
     let nextBeatTime;
-    // 2D context for drawing the graph
     let graphContext;
-    // Start time for the graph
     let graphStartTime;
-    // Initial volume
     let volume = 0.1;
+    let selectedDuration = 1 * 60; // Default to 1 minute
 
-    // Event listener for volume control
     document.getElementById('volumeControl').addEventListener('input', (event) => {
         volume = parseFloat(event.target.value);
     });
 
-    // Event listener for start button
+    document.getElementById('durationButtons').addEventListener('click', (event) => {
+        if (event.target.tagName === 'BUTTON') {
+            selectedDuration = parseInt(event.target.getAttribute('data-duration')) * 60;
+            Array.from(event.currentTarget.children).forEach(button => button.classList.remove('active'));
+            event.target.classList.add('active');
+        }
+    });
+
     document.getElementById('startButton').addEventListener('click', () => {
         const initialTempo = parseFloat(document.getElementById('initialTempo').value);
         const finalTempo = parseFloat(document.getElementById('finalTempo').value);
-        const duration = parseFloat(document.getElementById('duration').value) * 60; // Convert minutes to seconds
 
-        if (initialTempo <= 0 || finalTempo <= 0 || duration <= 0) {
+        if (initialTempo <= 0 || finalTempo <= 0 || selectedDuration <= 0) {
             alert('Please enter positive values for tempo and duration.');
             return;
         }
 
-        startMetronome(initialTempo, finalTempo, duration);
+        startMetronome(initialTempo, finalTempo, selectedDuration);
     });
 
-    // Event listener for stop button
     document.getElementById('stopButton').addEventListener('click', stopMetronome);
 
-    // Starts the metronome with the given parameters
     function startMetronome(initialTempo, finalTempo, duration) {
         stopMetronome();
 
@@ -160,13 +169,11 @@
             }
 
             if (currentTime >= nextBeatTime) {
-                // Play the click sound
                 if (!audioContext) return;
 
                 const buffer = audioContext.createBuffer(1, audioContext.sampleRate * 0.1, audioContext.sampleRate);
                 const channelData = buffer.getChannelData(0);
 
-                // Create a sound resembling a woodblock hit
                 for (let i = 0; i < channelData.length; i++) {
                     const t = i / audioContext.sampleRate;
                     channelData[i] = Math.exp(-30 * t) * Math.sin(2 * Math.PI * 2000 * t);
@@ -183,16 +190,14 @@
 
                 source.start(nextBeatTime);
 
-                // Non-linear tempo increase using an ease-out function
                 const progress = elapsedTime / duration;
-                const easedProgress = 1 - Math.pow(1 - progress, 2); // Quadratic ease-out
+                const easedProgress = 1 - Math.pow(1 - progress, 2);
                 const currentTempo = initialTempo + (finalTempo - initialTempo) * easedProgress;
                 const interval = 60 / currentTempo;
 
                 nextBeatTime += interval;
                 tempoDisplay.textContent = `Current Tempo: ${currentTempo.toFixed(2)} BPM`;
 
-                // Update the graph
                 const graphElapsedTime = currentTime - graphStartTime;
                 const x = (graphElapsedTime / duration) * canvas.width;
                 const y = canvas.height - ((currentTempo - initialTempo) / (finalTempo - initialTempo)) * canvas.height;
@@ -205,7 +210,6 @@
         document.getElementById('stopButton').disabled = false;
     }
 
-    // Stops the metronome
     function stopMetronome() {
         if (metronomeInterval) {
             clearInterval(metronomeInterval);
